@@ -8,7 +8,7 @@ import os
 # Configuración de la interfaz premium
 st.set_page_config(page_title='Analizador de Potencia Crítica', layout='wide')
 
-st.title('🚴 Dashboard de Rendimiento: Potencia Crítica & W\' Balance')
+st.title("🚴 Dashboard de Rendimiento: Potencia Crítica & W' Balance")
 st.markdown("Análisis avanzado de los modelos lineales y no lineales de carga externa a partir de test de esfuerzo.")
 
 excel_file = 'practica_potencia_critica_colab_datos.xlsx'
@@ -79,7 +79,7 @@ else:
             st.markdown("#### Modelo Lineal: Trabajo vs Tiempo")
             fig1, ax1 = plt.subplots(figsize=(6, 4.5))
             ax1.scatter(df_atleta['duration_s'], df_atleta['work_J'], color='#1f77b4', s=90, edgecolors='black', label='Tests Reales', zorder=3)
-            ax1.plot(t_plot, cp_atleta * t_plot + w_prime_atleta, 'b--', linewidth=2, label=f'Ajuste (Recta $W = CP \cdot t + W\'$)')
+            ax1.plot(t_plot, cp_atleta * t_plot + w_prime_atleta, 'b--', linewidth=2, label=f"Ajuste (Recta $W = CP \\cdot t + W'$")
             ax1.set_xlabel('Duración del esfuerzo (s)')
             ax1.set_ylabel('Trabajo acumulado (J)')
             ax1.legend()
@@ -90,7 +90,7 @@ else:
             st.markdown("#### Modelo No Lineal: Potencia vs Duración")
             fig2, ax2 = plt.subplots(figsize=(6, 4.5))
             ax2.scatter(df_atleta['duration_s'], df_atleta['mean_power_W'], color='#d62728', s=90, edgecolors='black', label='Tests Reales', zorder=3)
-            ax2.plot(t_plot, cp_atleta + (w_prime_atleta / t_plot), 'r-', linewidth=2, label="Curva Hipérbola ($P = CP + W\'/t$)")
+            ax2.plot(t_plot, cp_atleta + (w_prime_atleta / t_plot), 'r-', linewidth=2, label="Curva Hipérbola ($P = CP + W'/t$)")
             ax2.set_xlabel('Duración del esfuerzo (s)')
             ax2.set_ylabel('Potencia media (W)')
             ax2.legend()
@@ -105,7 +105,7 @@ else:
             df_3mt = df_3mt_all[df_3mt_all['athlete_id'] == atleta_sel].sort_values('time_s')
             
             if df_3mt.empty:
-                st.warning(f"No hay registros de Test 3MT para el deportista {atleta_sel} en el Excel.")
+                st.warning(f"💡 No hay registros de Test 3MT cargados en el Excel para el deportista {atleta_sel}.")
             else:
                 last_30s = df_3mt[df_3mt['time_s'] >= 150]
                 cp_3mt = last_30s['power_W'].mean()
@@ -128,71 +128,72 @@ else:
         except Exception as e:
             st.error(f"Error procesando la pestaña 3MT: {e}")
 
-    # PESTAÑA 3: SIMULACIÓN DE INTERVALOS (CON SISTEMA ANTIFALLOS)
+    # PESTAÑA 3: SIMULACIÓN DE INTERVALOS
     with tab3:
         st.subheader(f"🏃 Prescripción y Tolerancia de Series de Entrenamiento: {atleta_sel}")
         try:
             df_temp_all = pd.read_excel(excel_file, sheet_name='interval_templates')
             df_temp = df_temp_all[df_temp_all['athlete_id'] == atleta_sel].reset_index(drop=True)
             
-            if df_temp.empty:
-                st.warning(f"No hay plantillas de intervalos diseñadas para {atleta_sel} en el Excel.")
+            if df_temp.empty or len(df_temp.columns) < 2:
+                st.info(f"ℹ️ El archivo Excel no contiene una plantilla de series específica diseñada para **{atleta_sel}** en la pestaña 'interval_templates'.")
             else:
-                # Comprobación de columnas en minúsculas para mapear
                 cols_lista = list(df_temp.columns)
                 
-                # Intentar buscar por aproximación de nombres
                 c_int = [c for c in cols_lista if 'intens' in c.lower() or 'power' in c.lower() or 'potenc' in c.lower() or 'w' in c.lower()]
                 c_dur = [c for c in cols_lista if 'durat' in c.lower() or 'tiemp' in c.lower() or 'seg' in c.lower() or 'time' in c.lower()]
                 
-                # Si falla el detector automático, forzamos por posición física de las columnas en el Excel
-                # Generalmente la columna 2 es potencia/intensidad y la 3 es duración tras el ID de atleta
-                col_intensidad = c_int[0] if c_int else cols_lista[1]
-                col_duracion = c_dur[0] if c_dur else cols_lista[2]
+                col_intensidad = c_int[0] if c_int else (cols_lista[1] if len(cols_lista) > 1 else None)
+                col_duracion = c_dur[0] if c_dur else (cols_lista[2] if len(cols_lista) > 2 else None)
                 
-                w_balance = w_prime_atleta
-                historial_wb = []
-                tiempos_acumulados = []
-                t_actual = 0
-                
-                # Ejecutar la dinámica interna del tanque de energía W'
-                for idx, row in df_temp.iterrows():
-                    p_int = row[col_intensidad]
-                    d_int = row[col_duracion]
-                    
-                    for _ in range(int(d_int)):
-                        t_actual += 1
-                        if p_int > cp_atleta:
-                            w_balance -= (p_int - cp_atleta)
-                        else:
-                            w_balance = min(w_prime_atleta, w_balance + (cp_atleta - p_int))
-                        historial_wb.append(w_balance)
-                        tiempos_acumulados.append(t_actual)
-                
-                # Alertas profesionales según el balance final
-                min_wb = min(historial_wb)
-                if min_wb < 0:
-                    st.error(f"⚠️ **ALERTA DE RENDIMIENTO:** La sesión propuesta supera los límites fisiológicos de {atleta_sel}. El tanque de $W'$ se agota por debajo de cero ({min_wb/1000:.1f} kJ). ¡Peligro de pájara o colapso neuromuscular!")
+                if not col_intensidad or not col_duracion:
+                    st.warning("⚠️ No se han podido estructurar las columnas de intensidad y duración para este registro.")
                 else:
-                    st.success(f"✅ **SESIÓN TOLERABLE:** El deportista {atleta_sel} cuenta con el perfil metabólico necesario para completar la sesión de intervalos de forma óptima (Balance mínimo: {min_wb/1000:.1f} kJ).")
-                
-                # Gráfico del vaciado de W' balance en tiempo real
-                fig4, ax4 = plt.subplots(figsize=(12, 4.5))
-                ax4.plot(tiempos_acumulados, np.array(historial_wb)/1000, color='#e67e22', linewidth=2.5, label="Balance actual de W' (kJ)")
-                ax4.axhline(0, color='red', linestyle='-', alpha=0.5, linewidth=1)
-                ax4.fill_between(tiempos_acumulados, np.array(historial_wb)/1000, 0, where=(np.array(historial_wb) >= 0), color='#e67e22', alpha=0.1)
-                ax4.set_xlabel("Tiempo total de la sesión (s)")
-                ax4.set_ylabel("Energía Anaeróbica Disponible (kJ)")
-                ax4.set_title("DINÁMICA DE RECONSTITUCIÓN Y VACIADO DEL W' BALANCE")
-                ax4.grid(True, linestyle=':', alpha=0.5)
-                ax4.legend(loc='lower left')
-                st.pyplot(fig4)
-                
-                st.markdown("### 📋 Desglose de las series propuestas en el Excel")
-                df_mostrar = df_temp[[col_intensidad, col_duracion]].copy()
-                df_mostrar.columns = [f'Intensidad ({col_intensidad})', f'Duración ({col_duracion})']
-                st.dataframe(df_mostrar, use_container_width=True)
-                
+                    w_balance = w_prime_atleta
+                    historial_wb = []
+                    tiempos_acumulados = []
+                    t_actual = 0
+                    
+                    for idx, row in df_temp.iterrows():
+                        p_int = row[col_intensidad]
+                        d_int = row[col_duracion]
+                        
+                        if pd.isna(p_int) or pd.isna(d_int):
+                            continue
+                            
+                        for _ in range(int(d_int)):
+                            t_actual += 1
+                            if p_int > cp_atleta:
+                                w_balance -= (p_int - cp_atleta)
+                            else:
+                                w_balance = min(w_prime_atleta, w_balance + (cp_atleta - p_int))
+                            historial_wb.append(w_balance)
+                            tiempos_acumulados.append(t_actual)
+                    
+                    if tiempos_acumulados:
+                        min_wb = min(historial_wb)
+                        if min_wb < 0:
+                            st.error(f"⚠️ **ALERTA DE RENDIMIENTO:** La sesión propuesta supera los límites fisiológicos de {atleta_sel}. El tanque de $W'$ se agota por debajo de cero ({min_wb/1000:.1f} kJ). ¡Peligro de colapso neuromuscular!")
+                        else:
+                            st.success(f"✅ **SESIÓN TOLERABLE:** El deportista {atleta_sel} cuenta con el perfil metabólico necesario para completar la sesión de intervalos de forma óptima (Balance mínimo: {min_wb/1000:.1f} kJ).")
+                        
+                        fig4, ax4 = plt.subplots(figsize=(12, 4.5))
+                        ax4.plot(tiempos_acumulados, np.array(historial_wb)/1000, color='#e67e22', linewidth=2.5, label="Balance actual de W' (kJ)")
+                        ax4.axhline(0, color='red', linestyle='-', alpha=0.5, linewidth=1)
+                        ax4.fill_between(tiempos_acumulados, np.array(historial_wb)/1000, 0, where=(np.array(historial_wb) >= 0), color='#e67e22', alpha=0.1)
+                        ax4.set_xlabel("Tiempo total de la sesión (s)")
+                        ax4.set_ylabel("Energía Anaeróbica Disponible (kJ)")
+                        ax4.set_title("DINÁMICA DE RECONSTITUCIÓN Y VACIADO DEL W' BALANCE")
+                        ax4.grid(True, linestyle=':', alpha=0.5)
+                        ax4.legend(loc='lower left')
+                        st.pyplot(fig4)
+                        
+                        st.markdown("### 📋 Desglose de las series propuestas en el Excel")
+                        df_mostrar = df_temp[[col_intensidad, col_duracion]].copy()
+                        df_mostrar.columns = [f'Intensidad ({col_intensidad})', f'Duración ({col_duracion})']
+                        st.dataframe(df_mostrar, use_container_width=True)
+                    else:
+                        st.warning("No se encontraron registros de series válidos para procesar el gráfico cronológico.")
+                        
         except Exception as e:
             st.error(f"Error simulando las series: {e}")
-            st.warning(f"Columnas detectadas en la pestaña del Excel: {list(df_temp.columns) if 'df_temp' in locals() else 'No leída'}")
