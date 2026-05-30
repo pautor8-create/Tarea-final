@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from scipy import stats
 import os
 
-# 1. Configuración inicial del Dashboard web
+# 1. Configuracion inicial de la plataforma Streamlit
 st.set_page_config(page_title="Analizador Fisiologico de Potencia", layout="wide")
 
 st.title("Dashboard de Rendimiento Deportivo")
@@ -15,8 +15,9 @@ excel_file = 'practica_potencia_critica_colab_datos.xlsx'
 
 if not os.path.exists(excel_file):
     st.error("No se encuentra el archivo de datos Excel en el repositorio de GitHub.")
+    st.info("Asegurate de que el archivo 'practica_potencia_critica_colab_datos.xlsx' este subido en la raiz de tu repositorio.")
 else:
-    # 2. Carga de matrices y cálculo de regresiones lineales
+    # 2. Carga centralizada y modelado por mínimos cuadrados
     @st.cache_data
     def procesar_datos_atleta(path):
         df_trials = pd.read_excel(path, sheet_name='trials_CP')
@@ -46,7 +47,7 @@ else:
     r2_atleta = models[atleta_sel]['R2']
     df_atleta = models[atleta_sel]['data']
 
-    # KPIs de la zona superior
+    # KPIs superiores del perfil metabolico del atleta
     col1, col2, col3 = st.columns(3)
     col1.metric("Potencia Critica (CP)", f"{cp_atleta:.1f} W")
     col2.metric("Capacidad Anaerobica (W prime)", f"{w_prime_atleta/1000:.2f} kJ")
@@ -54,7 +55,7 @@ else:
 
     st.divider()
 
-    # 4. Estructura de navegación por pestañas
+    # 4. Estructura de pestañas de navegacion web
     tab1, tab2, tab3, tab4 = st.tabs([
         "Modelos de Potencia", 
         "Prediccion TTE", 
@@ -92,7 +93,7 @@ else:
 
     # PESTAÑA 2: TABLA DE TIEMPO HASTA EL AGOTAMIENTO (TTE)
     with tab2:
-        st.subheader("Tiempo hasta el Agotamiento Estimado")
+        st.subheader("Tiempo hasta el Agotamiento Estimado (TTE)")
         intensities = [1.05, 1.10, 1.20, 1.30]
         tte_data = []
         for pct in intensities:
@@ -108,13 +109,13 @@ else:
 
     # PESTAÑA 3: ANALIS TEST 3 MINUTOS (3MT)
     with tab3:
-        st.subheader("Analisis del Test 3MT")
+        st.subheader("Analisis del Test 3MT (Integral de Area)")
         try:
             df_3mt_all = pd.read_excel(excel_file, sheet_name='three_min_allout')
             df_3mt = df_3mt_all[df_3mt_all['athlete_id'] == atleta_sel].sort_values('time_s')
             
             if df_3mt.empty:
-                st.info("No se registran datos del test 3MT para este atleta.")
+                st.info("No se registran datos del test 3MT para este atleta en el archivo Excel.")
             else:
                 cp_3mt = float(df_3mt[df_3mt['time_s'] >= 150]['power_W'].mean())
                 dt = 5 if len(df_3mt) <= 40 else 1 
@@ -134,11 +135,11 @@ else:
                 ax3.grid(True, alpha=0.3)
                 st.pyplot(fig3)
         except Exception as e:
-            st.error(f"Pestaña 3MT no disponible: {e}")
+            st.error(f"Pestaña 3MT no disponible o con formato diferente: {e}")
 
-    # PESTAÑA 4: SIMULACIÓN HIIT (MODELO TAU DE TU CLASE ORIGINAL)
+    # PESTAÑA 4: SIMULACIÓN HIIT (S3 - MODELO EXPONENCIAL TAU)
     with tab4:
-        st.subheader("Modelo Dinamico de HIIT: Simulacion S3")
+        st.subheader("Modelo Dinamico de HIIT: Simulacion de Fatiga")
         
         p_work = cp_atleta * 1.20
         p_rec = cp_atleta * 0.70
@@ -154,7 +155,7 @@ else:
         rep_fallo = 0
         
         for rep in range(1, 11):
-            # Intervalo de trabajo (120 segundos)
+            # Fase de Carga/Trabajo (120 segundos)
             for _ in range(120):
                 tiempo_total += 1
                 w_bal -= (p_work - cp_atleta)
@@ -165,7 +166,7 @@ else:
                 fallo_detectado = True
                 rep_fallo = rep
                 
-            # Intervalo de recuperacion (60 segundos con Tau exponencial)
+            # Fase de Recuperacion (60 segundos con constante de tiempo Tau)
             w_inicial_rec = w_bal
             for _ in range(60):
                 tiempo_total += 1
@@ -174,15 +175,15 @@ else:
                 segundos_eje.append(tiempo_total)
 
         if fallo_detectado:
-            st.error(f"Agotamiento critico detectado en la Repeticion {rep_fallo}.")
+            st.error(f"Agotamiento critico del tanque anaerobico detectado en la Repeticion {rep_fallo}.")
         else:
-            st.success("Sesion de 10 repeticiones completada con exito.")
+            st.success("Sesion de 10 repeticiones simulada y completada con exito.")
             
         fig4, ax4 = plt.subplots(figsize=(12, 4.5))
         ax4.plot(segundos_eje, np.array(historial_hiit)/1000, color='darkorange', linewidth=2, label="W prime balance (kJ)")
         ax4.axhline(0, color='red', linestyle='--', alpha=0.7)
-        ax4.set_xlabel("Tiempo (s)")
-        ax4.set_ylabel("Energia Anaerobica (kJ)")
+        ax4.set_xlabel("Tiempo de la Sesion (s)")
+        ax4.set_ylabel("Energia Anaerobica Disponible (kJ)")
         ax4.grid(True, linestyle=':', alpha=0.5)
         ax4.legend()
         st.pyplot(fig4)
