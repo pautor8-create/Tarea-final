@@ -16,7 +16,7 @@ excel_file = 'practica_potencia_critica_colab_datos.xlsx'
 # Verificar si el Excel está en el repositorio
 if not os.path.exists(excel_file):
     st.error(f"❌ No se encuentra el archivo '{excel_file}' en tu repositorio de GitHub.")
-    st.info("💡 Asegúrate de subir el archivo Excel a la misma carpeta de GitHub donde tienes este código para que la app pueda leer los datos automáticamente.")
+    st.info("💡 Asegúrate de subir el archivo Excel a la misma carpeta de GitHub donde tienes este código.")
 else:
     # ==========================================
     # 1. CARGA Y PROCESAMIENTO DE DATOS BASE
@@ -128,7 +128,7 @@ else:
         except Exception as e:
             st.error(f"Error procesando la pestaña 3MT: {e}")
 
-    # PESTAÑA 3: SIMULACIÓN DE INTERVALOS (MÓDULO INTELIGENTE ARREGLADO)
+    # PESTAÑA 3: SIMULACIÓN DE INTERVALOS (CON SISTEMA ANTIFALLOS)
     with tab3:
         st.subheader(f"🏃 Prescripción y Tolerancia de Series de Entrenamiento: {atleta_sel}")
         try:
@@ -138,9 +138,17 @@ else:
             if df_temp.empty:
                 st.warning(f"No hay plantillas de intervalos diseñadas para {atleta_sel} en el Excel.")
             else:
-                # DETECTOR INTELIGENTE DE COLUMNAS: Evita el KeyError buscando sin importar mayúsculas o sufijos
-                col_intensidad = [c for c in df_temp.columns if 'intens' in c.lower()][0]
-                col_duracion = [c for c in df_temp.columns if 'durat' in c.lower() or 'tiemp' in c.lower()][0]
+                # Comprobación de columnas en minúsculas para mapear
+                cols_lista = list(df_temp.columns)
+                
+                # Intentar buscar por aproximación de nombres
+                c_int = [c for c in cols_lista if 'intens' in c.lower() or 'power' in c.lower() or 'potenc' in c.lower() or 'w' in c.lower()]
+                c_dur = [c for c in cols_lista if 'durat' in c.lower() or 'tiemp' in c.lower() or 'seg' in c.lower() or 'time' in c.lower()]
+                
+                # Si falla el detector automático, forzamos por posición física de las columnas en el Excel
+                # Generalmente la columna 2 es potencia/intensidad y la 3 es duración tras el ID de atleta
+                col_intensidad = c_int[0] if c_int else cols_lista[1]
+                col_duracion = c_dur[0] if c_dur else cols_lista[2]
                 
                 w_balance = w_prime_atleta
                 historial_wb = []
@@ -181,9 +189,10 @@ else:
                 st.pyplot(fig4)
                 
                 st.markdown("### 📋 Desglose de las series propuestas en el Excel")
-                # Mostrar la tabla renombrando temporalmente las columnas para que el usuario las lea claras
                 df_mostrar = df_temp[[col_intensidad, col_duracion]].copy()
-                df_mostrar.columns = ['Potencia del Intervalo (W)', 'Duración (s)']
+                df_mostrar.columns = [f'Intensidad ({col_intensidad})', f'Duración ({col_duracion})']
                 st.dataframe(df_mostrar, use_container_width=True)
+                
         except Exception as e:
             st.error(f"Error simulando las series: {e}")
+            st.warning(f"Columnas detectadas en la pestaña del Excel: {list(df_temp.columns) if 'df_temp' in locals() else 'No leída'}")
