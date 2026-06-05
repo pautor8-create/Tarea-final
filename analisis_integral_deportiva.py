@@ -1,4 +1,4 @@
-¡import streamlit as st
+import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -81,7 +81,6 @@ if os.path.exists(archivo_excel):
     data_atleta_3m = df_3m_global[df_3m_global['athlete_id'] == id_3m_real].sort_values('time_s')
     
     if not data_atleta_3m.empty:
-        # Si tiene test de 3min (Deportista 1)
         calculated_cp = data_atleta_3m[(data_atleta_3m['time_s'] >= 155) & (data_atleta_3m['time_s'] <= 180)]['power_W'].mean()
         calculated_w = ((data_atleta_3m['power_W'] - calculated_cp).clip(lower=0) * 5).sum()
         metodo_calculo = "Cálculo directo vía Test All-out de 3 min"
