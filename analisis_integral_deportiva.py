@@ -58,9 +58,10 @@ if os.path.exists(archivo_excel):
     df_trials_global = pd.read_excel(archivo_excel, sheet_name='trials_CP')
     df_atleta_trials = df_trials_global[df_trials_global['athlete_id'] == id_trials_real].copy()
     
-    # CORREGIDO: Nombres de columnas mapeados exactamente a tu Excel
-    c_dur = 'time_s' if 'time_s' in df_atleta_trials.columns else 'duration_s'
-    c_pow = 'power_W'
+    # DETECCIÓN INTELIGENTE DE COLUMNAS (Inmune a fallos de nombres del Excel)
+    columnas = df_atleta_trials.columns.tolist()
+    c_dur = [c for c in columnas if 'dur' in c or 'time' in c][0]
+    c_pow = [c for c in columnas if 'pow' in c][0]
     
     df_atleta_trials[c_dur] = pd.to_numeric(df_atleta_trials[c_dur], errors='coerce')
     df_atleta_trials[c_pow] = pd.to_numeric(df_atleta_trials[c_pow], errors='coerce')
@@ -70,7 +71,6 @@ if os.path.exists(archivo_excel):
     df_atleta_trials['work_J'] = df_atleta_trials[c_pow] * df_atleta_trials[c_dur]
     slope, intercept, r_value, p_value, std_err = linregress(df_atleta_trials[c_dur].astype(float), df_atleta_trials['work_J'].astype(float))
     
-    # Forzar el cálculo real para todos los deportistas
     calculated_cp = max(100.0, slope)
     calculated_w = max(4000.0, intercept)
     
