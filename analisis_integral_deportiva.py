@@ -3,11 +3,13 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import os
-from scipy.stats import linregress
 
 st.set_page_config(page_title='Análisis Performance Deporte', layout='wide')
 
-# --- Funciones de Simulación (HIIT W'bal con Modelo de Skiba) ---
+# Nombre exacto del archivo de Excel en tu GitHub
+archivo_excel = 'practica_potencia_critica_colab_datos.xlsx'
+
+# --- Funciones de Simulación (HIIT W'bal - Modelo de Skiba) ---
 def simulate_w_bal(cp, w_total, work_p_pct, work_dur, rest_p_pct, rest_dur, reps=10):
     p_work = cp * (work_p_pct / 100)
     p_rest = cp * (rest_p_pct / 100)
@@ -43,125 +45,122 @@ def simulate_w_bal(cp, w_total, work_p_pct, work_dur, rest_p_pct, rest_dur, reps
             
     return time, w_bal, status, reps_completadas
 
-# --- Interfaz Principal ---
+# --- BARRA LATERAL IZQUIERDA (SELECTOR DE JUGADOR) ---
+st.sidebar.title("🏃‍♂️ Control de Deportistas")
+
+if os.path.exists(archivo_excel):
+    df_3m_global = pd.read_excel(archivo_excel, sheet_name='three_min_allout')
+    lista_atletas = sorted(df_3m_global['athlete_id'].dropna().unique())
+    atleta_sel = st.sidebar.selectbox('Selecciona un Deportista:', lista_atletas)
+    
+    # Calcular dinámicamente el perfil del atleta seleccionado según el Excel
+    data_atleta = df_3m_global[df_3m_global['athlete_id'] == atleta_sel].sort_values('time_s')
+    # CP = media de la potencia entre los segundos 155 y 180 del test de 3 min
+    calculated_cp = data_atleta[(data_atleta['time_s'] >= 155) & (data_atleta['time_s'] <= 180)]['power_W'].mean()
+    # W' = Sumatorio del trabajo por encima de la CP
+    calculated_w = ((data_atleta['power_W'] - calculated_cp).clip(lower=0) * 5).sum()
+    
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📊 Valores Fisiológicos Calculados")
+    st.sidebar.metric("Potencia Crítica (CP)", f"{calculated_cp:.1f} W")
+    st.sidebar.metric("Capacidad Anaeróbica (W')", f"{calculated_w:.0f} J")
+else:
+    st.sidebar.error("Falta el archivo Excel.")
+    atleta_sel = None
+    calculated_cp, calculated_w = 300.0, 20000.0
+
+# --- INTERFAZ PRINCIPAL ---
 st.title('📊 Dashboard de Rendimiento Avanzado')
-# Pestañas originales con sintaxis corregida
 tab1, tab2, tab3 = st.tabs(["Eficiencia TEI", "Test 3-min All-out", "Simulador HIIT W'bal"])
 
-# Nombre del archivo excel en GitHub
-archivo_excel = 'practica_potencia_critica_colab_datos.xlsx'
-
-# --- TAB 1: TEI (Exactamente igual que antes) ---
+# --- TAB 1: TEI ---
 with tab1:
     st.header('Análisis de Eficiencia (TEI)')
     st.info('Sección para análisis de carga externa vs interna.')
 
-# --- TAB 2: TEST 3-MIN ALL-OUT (Exactamente igual que antes) ---
+# --- TAB 2: TEST 3-MIN ALL-OUT ---
 with tab2:
-    st.header('Validación Test 3-min All-out')
-    if os.path.exists(archivo_excel):
-        df_3m = pd.read_excel(archivo_excel, sheet_name='three_min_allout')
-        atletas_3m = df_3m['athlete_id'].dropna().unique()
+    st.header(f'Validación Test 3-min All-out: {atleta_sel}')
+    if os.path.exists(archivo_excel) and atleta_sel:
+        c1, c2 = st.columns(2)
+        c1.metric("Potencia Crítica (CP)", f"{calculated_cp:.1f} W")
+        c2.metric("Capacidad Anaeróbica (W')", f"{calculated_w:.0f} J")
         
-        atleta_sel = st.selectbox('Seleccionar Atleta', atletas_3m)
-        
-        if atleta_sel:
-            data_atleta = df_3m[df_3m['athlete_id'] == atleta_sel].sort_values('time_s')
-            cp_3m = data_atleta[(data_atleta['time_s'] >= 155) & (data_atleta['time_s'] <= 180)]['power_W'].mean()
-            w_p_3m = ((data_atleta['power_W'] - cp_3m).clip(lower=0) * 5).sum()
-            
-            c1, c2 = st.columns(2)
-            c1.metric("Potencia Crítica (CP)", f"{cp_3m:.1f} W")
-            c2.metric("Capacidad Anaeróbica (W')", f"{w_p_3m:.0f} J")
-            
-            fig_3m = go.Figure()
-            fig_3m.add_trace(go.Scatter(x=data_atleta['time_s'], y=data_atleta['power_W'], name='Potencia'))
-            fig_3m.add_hline(y=cp_3m, line_dash='dash', line_color='red', annotation_text='CP Estimada')
-            st.plotly_chart(fig_3m, use_container_width=True)
+        fig_3m = go.Figure()
+        fig_3m.add_trace(go.Scatter(x=data_atleta['time_s'], y=data_atleta['power_W'], name='Potencia (W)', line=dict(color='#1f77b4')))
+        fig_3m.add_hline(y=calculated_cp, line_dash='dash', line_color='red', annotation_text='CP del Deportista')
+        fig_3m.update_layout(title=f"Perfil del Test de 3 minutos - {atleta_sel}", xaxis_title="Tiempo (s)", yaxis_title="Potencia (W)")
+        st.plotly_chart(fig_3m, use_container_width=True)
     else:
-        st.error(f'Archivo "{archivo_excel}" no encontrado.')
+        st.error('Archivo no encontrado.')
 
-# --- TAB 3: SIMULADOR HIIT INTERACTIVO ORIGINAL + MEJORAS ---
+# --- TAB 3: SIMULADOR HIIT COMPUESTO ---
 with tab3:
-    st.header("Simulador de Cinética de W' balance")
+    st.header(f"Simulador de Cinética de W' balance para {atleta_sel}")
     
-    # NUEVO: Selector de los 5 perfiles de Jugadores por defecto
-    st.subheader("1. Selección del Perfil del Jugador")
-    perfiles_jugadores = {
-        'Jugador A (Perfil de Potencia / Motor)': {'cp': 320, 'w': 18000},
-        'Jugador B (Perfil Anaeróbico / Velocista)': {'cp': 250, 'w': 26000},
-        'Jugador C (Perfil Equilibrado / Medio)': {'cp': 280, 'w': 21000},
-        'Jugador D (Perfil Diesel / Resistencia)': {'cp': 300, 'w': 15000},
-        'Jugador E (Perfil Juvenil / En Formación)': {'cp': 230, 'w': 17000}
+    # Configuración de las 3 sesiones del enunciado + la propuesta moderada adaptada
+    sesiones_config = {
+        'S1_short_short': {'reps': 10, 'w_pct': 120, 'w_dur': 30, 'r_pct': 50, 'r_dur': 30},
+        'S2_long_recovery': {'reps': 10, 'w_pct': 115, 'w_dur': 60, 'r_pct': 45, 'r_dur': 120},
+        'S3_risky': {'reps': 10, 'w_pct': 120, 'w_dur': 120, 'r_pct': 70, 'r_dur': 60},
+        'S_Moderada_Propuesta': {'reps': 10, 'w_pct': 112, 'w_dur': 30, 'r_pct': 40, 'r_dur': 45}
     }
     
-    jugador_elegido = st.selectbox('Elige un perfil predefinido o edita sus valores abajo:', list(perfiles_jugadores.keys()))
-    valores_defecto = perfiles_jugadores[jugador_elegido]
-
-    # Controles originales para modificar CP y W' libremente basados en el jugador
-    col_p1, col_p2, col_p3 = st.columns(3)
-    u_cp = col_p1.number_input('CP (W)', 150, 450, valores_defecto['cp'])
-    u_w = col_p2.number_input("W' (J)", 5000, 35000, valores_defecto['w'])
-    u_reps = col_p3.slider('Repeticiones totales', 1, 15, 10)
+    st.subheader("1. Evolución Temporal del W' en las Sesiones Solicitadas")
     
-    # Controles manuales originales para la sesión personalizada en tiempo real
-    st.markdown("#### Configuración Manual de la Sesión Actual")
-    col_s1, col_s2, col_s3, col_s4 = st.columns(4)
-    w_int = col_s1.number_input('% Potencia Trabajo', 100, 150, 115)
-    w_dur = col_s2.number_input('Segundos Trabajo', 10, 300, 60)
-    r_int = col_s3.number_input('% Potencia Recuperación', 30, 90, 50)
-    r_dur = col_s4.number_input('Segundos Recuperación', 10, 300, 120)
-
-    # Simulación de la sesión manual que el usuario está moviendo
-    t_manual, w_manual, res_manual, _ = simulate_w_bal(u_cp, u_w, w_int, w_dur, r_int, r_dur, reps=u_reps)
-    
-    # Gráfico original interactivo en tiempo real
+    resultados = {}
     fig_sim = go.Figure()
-    fig_sim.add_trace(go.Scatter(x=t_manual, y=np.array(w_manual)/u_w*100, name=f"Tu Sesión Configurada", line=dict(color='#ff7f0e', width=3)))
-    fig_sim.add_hline(y=0, line_dash='solid', line_color='black', annotation_text='FALLO')
-    fig_sim.update_layout(title=f'Estado de tu sesión manual: {res_manual}', yaxis_title="% W' Disponible", xaxis_title='Tiempo (s)')
-    st.plotly_chart(fig_sim, use_container_width=True)
-
-    st.markdown("---")
     
-    # NUEVO: Bloque ocultable/desplegable para comparar las sesiones de la práctica (S1, S2, S3)
-    with st.expander("📊 CLIC AQUÍ PARA VER LA COMPARATIVA DE LAS SESIONES REQUERIDAS (S1, S2, S3)", expanded=True):
-        st.subheader("Análisis de las Sesiones del Ejercicio para el jugador seleccionado")
+    colores = {
+        'S1_short_short': '#1f77b4',
+        'S2_long_recovery': '#2ca02c',
+        'S3_risky': '#d62728',
+        'S_Moderada_Propuesta': '#ff7f0e'
+    }
+    
+    # Correr simulación para cada sesión usando los datos del jugador seleccionado a la izquierda
+    for nombre, conf in sesiones_config.items():
+        t, w, res, reps_comp = simulate_w_bal(
+            calculated_cp, calculated_w, conf['w_pct'], conf['w_dur'], conf['r_pct'], conf['r_dur'], reps=conf['reps']
+        )
+        resultados[nombre] = {'status': res, 'reps': reps_comp}
         
-        sesiones_fijas = {
-            'S1_short_short': {'reps': 10, 'w_pct': 120, 'w_dur': 30, 'r_pct': 50, 'r_dur': 30},
-            'S2_long_recovery': {'reps': 10, 'w_pct': 115, 'w_dur': 60, 'r_pct': 45, 'r_dur': 120},
-            'S3_risky': {'reps': 10, 'w_pct': 120, 'w_dur': 120, 'r_pct': 70, 'r_dur': 60},
-            'S_Moderada_Propuesta': {'reps': 10, 'w_pct': 115, 'w_dur': 30, 'r_pct': 45, 'r_dur': 45}
-        }
+        fig_sim.add_trace(go.Scatter(
+            x=t, 
+            y=np.array(w) / calculated_w * 100, 
+            name=f"{nombre}",
+            line=dict(color=colores[nombre], width=2 if 'Moderada' not in nombre else 3)
+        ))
         
-        res_data = []
-        fig_comp = go.Figure()
-        
-        colores = {'S1_short_short': '#1f77b4', 'S2_long_recovery': '#2ca02c', 'S3_risky': '#d62728', 'S_Moderada_Propuesta': '#bcbd22'}
-        
-        for nombre, conf in sesiones_fijas.items():
-            t, w, res, reps_comp = simulate_w_bal(u_cp, u_w, conf['w_pct'], conf['w_dur'], conf['r_pct'], conf['r_dur'], reps=conf['reps'])
-            
-            fig_comp.add_trace(go.Scatter(x=t, y=np.array(w)/u_w*100, name=f"{nombre}", line=dict(color=colores[nombre])))
-            
-            res_data.append({
-                "Sesión": nombre,
-                "Configuración": f"{conf['w_dur']}s al {conf['w_pct']}% / {conf['r_dur']}s al {conf['r_pct']}%",
-                "Estado Final": res,
-                "Repeticiones Completadas": f"{reps_comp} / 10"
-            })
-            
-        fig_comp.add_hline(y=0, line_dash='solid', line_color='red')
-        fig_comp.update_layout(title="Comparativa temporal del % W' restante en las sesiones de análisis", yaxis_title="% W'", xaxis_title="Tiempo (s)")
-        st.plotly_chart(fig_comp, use_container_width=True)
-        
-        st.table(pd.DataFrame(res_data))
-        
-        # Conclusiones fijas justificadas metodológicamente
-        st.markdown("""
-        **Conclusiones Clínicas/Rendimiento:**
-        * **Fallo en S3_risky:** El intervalo largo de 120s al 120% de CP vacía las reservas anaeróbicas de casi cualquier perfil (A, B, C, D o E) antes de la tercera repetición, agravado por una pausa muy alta (70% CP) que bloquea la reconstitución de $W'$.
-        * **Modificación para evitar el fallo:** Se requeriría bajar la potencia de esfuerzo a < 110% CP o alargar los tiempos de descanso a un ratio mínimo de 1:2 con recuperaciones pasivas o muy activas-bajas (40% CP).
-        * **Carga Moderada Ideal:** La sesión propuesta como alternativa moderada cumple el criterio de acumular tiempo por encima de la CP disminuyendo el $W'$ de forma controlada hasta zonas seguras (~40%), evitando el fallo metabólico prematuro.
-        """)
+    fig_sim.add_hline(y=0, line_dash='solid', line_color='black', annotation_text='FALLO METABÓLICO (W\' = 0)')
+    fig_sim.update_layout(
+        title=f"Cinética de Vaciamiento y Reconstitución de W' (% Restante) - {atleta_sel}",
+        yaxis_title="% W' Restante",
+        xaxis_title='Tiempo (segundos)',
+        hovermode='x unified'
+    )
+    st.plotly_chart(fig_sim, use_container_width=True)
+    
+    # Tabla Resumen Solicitada por el Ejercicio
+    st.subheader("2. Tabla Comparativa de Resultados")
+    
+    res_data = []
+    for nombre, conf in sesiones_config.items():
+        res_data.append({
+            "Sesión": nombre,
+            "Trabajo": f"{conf['w_dur']}s al {conf['w_pct']}% CP",
+            "Recuperación": f"{conf['r_dur']}s al {conf['r_pct']}% CP",
+            "Estado Final": resultados[nombre]['status'],
+            "Repeticiones Completadas": f"{resultados[nombre]['reps']} / 10"
+        })
+    
+    st.table(pd.DataFrame(res_data))
+    
+    # Análisis fisiológico justificado requerido
+    st.subheader("3. Justificación y Toma de Decisiones")
+    st.markdown(f"""
+    * **¿Cuántas repeticiones se necesitan para llegar al fallo?:** Analizando a **{atleta_sel}**, la sesión **S3_risky** provoca un fallo prematuro inmediato (normalmente en la repetición 1 o 2) debido a bloques de trabajo larguísimos (120s) muy por encima de la CP con una pausa ineficiente al 70%. En cambio, **S1** y **S2** permiten completar la sesión o tolerar un mayor número de repeticiones debido a mejores ratios de recuperación exponencial.
+    * **Modificación para evitar el fallo en S3:** Para que el deportista finalice las 10 repeticiones se debe disminuir la intensidad de trabajo al 105-108% de la CP o, en su defecto, reducir la potencia de la pausa al 40% aumentando el tiempo de recuperación al doble (ratio 1:2 o 1:3).
+    * **Elección de Sesión Moderada:** Elegimos **S_Moderada_Propuesta** (30s trabajo al 112% CP / 45s recuperación al 40% CP). 
+    * **Justificación:** Al disminuir ligeramente el porcentaje de potencia de esfuerzo y bajar la pausa notablemente al 40% de la CP, aumentamos la amplitud del gradiente de potencia ($D_{{CP}}$). Esto acorta de manera drástica la constante de tiempo $\\tau$ (Tau), permitiendo que el $W'$ se reconstituya velozmente en los descansos, asegurando un estímulo HIIT real y óptimo sin riesgo de colapso metabólico.
+    """)
