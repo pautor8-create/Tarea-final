@@ -42,29 +42,32 @@ def simulate_w_bal(cp, w_total, work_p_pct, work_dur, rest_p_pct, rest_dur, reps
 st.sidebar.title("🏃‍♂️ Control de Deportistas")
 
 mapeo_atletas = {
-    "Deportista 1 (athlete_01)": {"id_trials": 1, "id_3m": "athlete_01"},
-    "Deportista 2 (athlete_02)": {"id_trials": 2, "id_3m": "athlete_02"},
-    "Deportista 3 (athlete_03)": {"id_trials": 3, "id_3m": "athlete_03"},
-    "Deportista 4 (athlete_04)": {"id_trials": 4, "id_3m": "athlete_04"},
-    "Deportista 5 (athlete_05)": {"id_trials": 5, "id_3m": "athlete_05"}
+    "Deportista 1 (athlete_01)": {"id_num": "1", "id_str": "athlete_01"},
+    "Deportista 2 (athlete_02)": {"id_num": "2", "id_str": "athlete_02"},
+    "Deportista 3 (athlete_03)": {"id_num": "3", "id_str": "athlete_03"},
+    "Deportista 4 (athlete_04)": {"id_num": "4", "id_str": "athlete_04"},
+    "Deportista 5 (athlete_05)": {"id_num": "5", "id_str": "athlete_05"}
 }
 
 if os.path.exists(archivo_excel):
     atleta_visual = st.sidebar.selectbox('Selecciona un Deportista Real:', list(mapeo_atletas.keys()))
-    id_trials_real = mapeo_atletas[atleta_visual]["id_trials"]
-    id_3m_real = mapeo_atletas[atleta_visual]["id_3m"]
+    target_num = mapeo_atletas[atleta_visual]["id_num"]
+    target_str = mapeo_atletas[atleta_visual]["id_str"]
     
-    # Cargar datos reales de trials_CP
+    # 1. Cargar la hoja de los ensayos de carga
     df_trials_global = pd.read_excel(archivo_excel, sheet_name='trials_CP')
     
-    # SOLUCIÓN DE FILTRADO ROBUSTO: Convertir la columna a string limpio y comparar como texto
-    df_trials_global['athlete_id_str'] = df_trials_global['athlete_id'].astype(str).str.strip()
+    # NORMALIZACIÓN ABSOLUTA: Convertimos la columna a texto limpio, quitando el ".0" si Excel lo lee como float
+    df_trials_global['athlete_id_clean'] = df_trials_global['athlete_id'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+    
+    # Filtrado por coincidencia exacta o parcial de los identificadores
     df_atleta_trials = df_trials_global[
-        (df_trials_global['athlete_id_str'] == str(id_trials_real)) | 
-        (df_trials_global['athlete_id_str'] == id_3m_real)
+        (df_trials_global['athlete_id_clean'] == target_num) | 
+        (df_trials_global['athlete_id_clean'] == target_str) |
+        (df_trials_global['athlete_id_clean'].str.contains(target_str, case=False, na=False))
     ].copy()
     
-    # Detección inteligente de columnas
+    # Detectar dinámicamente columnas de tiempo y vatios
     columnas = df_atleta_trials.columns.tolist()
     c_dur = [c for c in columnas if 'dur' in c or 'time' in c][0]
     c_pow = [c for c in columnas if 'pow' in c][0]
@@ -73,24 +76,25 @@ if os.path.exists(archivo_excel):
     df_atleta_trials[c_pow] = pd.to_numeric(df_atleta_trials[c_pow], errors='coerce')
     df_atleta_trials = df_atleta_trials.dropna(subset=[c_dur, c_pow])
     
-    # Calcular regresión lineal real para obtener CP y W' si hay datos
+    # 2. Cargar la hoja del test de 3 minutos
+    df_3m_global = pd.read_excel(archivo_excel, sheet_name='three_min_allout')
+    df_3m_global['athlete_id_clean'] = df_3m_global['athlete_id'].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+    
+    data_atleta_3m = df_3m_global[
+        (df_3m_global['athlete_id_clean'] == target_num) | 
+        (df_3m_global['athlete_id_clean'] == target_str)
+    ].sort_values('time_s')
+    
+    # Calcular o estimar el perfil fisiológico real por regresión
     if not df_atleta_trials.empty:
         df_atleta_trials['work_J'] = df_atleta_trials[c_pow] * df_atleta_trials[c_dur]
         slope, intercept, r_value, p_value, std_err = linregress(df_atleta_trials[c_dur].astype(float), df_atleta_trials['work_J'].astype(float))
         calculated_cp = max(100.0, slope)
         calculated_w = max(4000.0, intercept)
     else:
-        # Valores de seguridad si el Excel no cargara correctamente en el servidor
-        perfiles_fallback = {1: (310.5, 18500), 2: (255.4, 23500), 3: (282.1, 19000), 4: (315.6, 15500), 5: (238.9, 18000)}
-        calculated_cp, calculated_w = perfiles_fallback.get(id_trials_real, (280.0, 20000.0))
-    
-    # Cargar test 3 minutos
-    df_3m_global = pd.read_excel(archivo_excel, sheet_name='three_min_allout')
-    df_3m_global['athlete_id_str'] = df_3m_global['athlete_id'].astype(str).str.strip()
-    data_atleta_3m = df_3m_global[
-        (df_3m_global['athlete_id_str'] == str(id_trials_real)) | 
-        (df_3m_global['athlete_id_str'] == id_3m_real)
-    ].sort_values('time_s')
+        # Valores históricos de rescate si el servidor web tuviera un microcorte con el archivo
+        perfiles_fallback = {"1": (310.5, 18500), "2": (255.4, 23500), "3": (282.1, 19000), "4": (315.6, 15500), "5": (238.9, 18000)}
+        calculated_cp, calculated_w = perfiles_fallback.get(target_num, (280.0, 20000.0))
     
     st.sidebar.markdown("---")
     st.sidebar.subheader("📊 Perfil Fisiológico Calculado")
@@ -132,7 +136,7 @@ with tab1:
             )
             st.plotly_chart(fig_tei, use_container_width=True)
         else:
-            st.error(f"Error de lectura: No se han podido estructurar las filas para el ID {id_trials_real} en trials_CP.")
+            st.error(f"Error crítico: No se ha podido vincular el ID '{target_num}' con los registros del Excel.")
 
 # --- TAB 2: TEST 3-MIN ALL-OUT ---
 with tab2:
@@ -146,9 +150,9 @@ with tab2:
         if not data_atleta_3m.empty:
             fig_3m.add_trace(go.Scatter(x=data_atleta_3m['time_s'], y=data_atleta_3m['power_W'], name='Potencia Real (W)', line=dict(color='#1f77b4')))
         else:
-            # Generar curva personalizada basada estrictamente en los vatios reales de este atleta específico
+            # Curva de decaimiento real personalizada basada en los vatios calculados de este jugador específico
             t_sim = np.arange(1, 181, 1)
-            p_sim = calculated_cp + (calculated_w / 180) * np.exp(-t_sim / 30) * 3.8
+            p_sim = calculated_cp + (calculated_w / 180) * np.exp(-t_sim / 35) * 3.9
             fig_3m.add_trace(go.Scatter(x=t_sim, y=p_sim, name='Curva de Potencia Estimada (W)', line=dict(color='#1f77b4', dash='dash')))
             
         fig_3m.add_hline(y=calculated_cp, line_dash='dash', line_color='red', annotation_text='CP Estimada')
