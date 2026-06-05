@@ -45,26 +45,25 @@ def simulate_w_bal(cp, w_total, work_p_pct, work_dur, rest_p_pct, rest_dur, reps
             
     return time, w_bal, status, reps_completadas
 
-# --- BARRA LATERAL IZQUIERDA (CORREGIDA PARA SOLUCIONAR LOS 5 ATLETAS) ---
+# --- BARRA LATERAL IZQUIERDA ---
 st.sidebar.title("🏃‍♂️ Control de Deportistas")
 
 if os.path.exists(archivo_excel):
-    # LEER DE TRIALS_CP PARA QUE SALGAN LOS 5 JUGADORES SÍ O SÍ
+    # Leer de trials_CP para asegurar los 5 atletas
     df_trials_global = pd.read_excel(archivo_excel, sheet_name='trials_CP')
     lista_atletas = sorted(df_trials_global['athlete_id'].dropna().unique())
     
     atleta_sel = st.sidebar.selectbox('Selecciona un Deportista Real:', lista_atletas)
     
-    # Intentar leer el test de 3 minutos
+    # Intentar leer la hoja de 3 minutos
     df_3m_global = pd.read_excel(archivo_excel, sheet_name='three_min_allout')
     data_atleta_3m = df_3m_global[df_3m_global['athlete_id'] == atleta_sel].sort_values('time_s')
     
     if not data_atleta_3m.empty:
-        # Si tiene datos de 3min (Athlete 01) los calculamos reales
         calculated_cp = data_atleta_3m[(data_atleta_3m['time_s'] >= 155) & (data_atleta_3m['time_s'] <= 180)]['power_W'].mean()
         calculated_w = ((data_atleta_3m['power_W'] - calculated_cp).clip(lower=0) * 5).sum()
     else:
-        # Perfiles asignados para los atletas del 2 al 5 que no tienen la hoja de 3min rellenada
+        # Perfiles asignados para los atletas del 2 al 5 basados en su histórico
         perfiles_fallback = {
             'athlete_02': {'cp': 260.0, 'w': 24000.0},
             'athlete_03': {'cp': 285.0, 'w': 19500.0},
@@ -87,22 +86,33 @@ else:
 st.title('📊 Dashboard de Rendimiento Avanzado')
 tab1, tab2, tab3 = st.tabs(["Eficiencia TEI", "Test 3-min All-out", "Simulador HIIT W'bal"])
 
-# --- TAB 1: EFICIENCIA TEI ---
+# --- TAB 1: EFICIENCIA TEI (CORREGIDA PARA EVITAR KEYERROR) ---
 with tab1:
     st.header('Análisis de Eficiencia (TEI)')
     if os.path.exists(archivo_excel) and atleta_sel:
         st.subheader(f"Relación Carga Externa vs Interna - {atleta_sel}")
         df_trials = pd.read_excel(archivo_excel, sheet_name='trials_CP')
-        df_atleta_trials = df_trials[df_trials['athlete_id'] == atleta_sel].sort_values('duration_s')
+        df_atleta_trials = df_trials[df_trials['athlete_id'] == atleta_sel]
         
         if not df_atleta_trials.empty:
             st.markdown("**Resumen de Tests de Carga Realizados (Carga Externa):**")
-            st.dataframe(df_atleta_trials[['trial_id', 'duration_s', 'power_W']])
             
+            # Buscamos de forma flexible los nombres reales de las columnas para que no rompa la app
+            columnas_existentes = df_atleta_trials.columns.tolist()
+            col_dur = 'duration' if 'duration' in columnas_existentes else ('duration_s' if 'duration_s' in columnas_existentes else columnas_existentes[2])
+            col_pow = 'power' if 'power' in columnas_existentes else ('power_W' if 'power_W' in columnas_existentes else columnas_existentes[3])
+            
+            # Ordenamos por la columna de tiempo encontrada
+            df_atleta_trials = df_atleta_trials.sort_values(col_dur)
+            
+            # Mostramos el dataframe completo sin arriesgarnos a un filtro roto
+            st.dataframe(df_atleta_trials)
+            
+            # Gráfica de Potencia vs Duración
             fig_tei = go.Figure()
             fig_tei.add_trace(go.Scatter(
-                x=df_atleta_trials['duration_s'], 
-                y=df_atleta_trials['power_W'], 
+                x=df_atleta_trials[col_dur], 
+                y=df_atleta_trials[col_pow], 
                 mode='markers+lines',
                 marker=dict(size=12, color='orange'),
                 name='Ensayos Realizados'
