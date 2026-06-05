@@ -1,4 +1,4 @@
-import streamlit as st
+¡import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
@@ -46,52 +46,54 @@ def simulate_w_bal(cp, w_total, work_p_pct, work_dur, rest_p_pct, rest_dur, reps
             
     return time, w_bal, status, reps_completadas
 
-# --- CONTROL DE CARGA Y CÁLCULOS DINÁMICOS DESDE EXCEL ---
+# --- BARRA LATERAL IZQUIERDA ---
 st.sidebar.title("🏃‍♂️ Control de Deportistas")
 
+# Mapeo de nombres visuales a los IDs reales dentro del Excel (Enteros en trials_CP, string en 3min)
+mapeo_atletas = {
+    "Deportista 1 (athlete_01)": {"id_trials": 1, "id_3m": "athlete_01"},
+    "Deportista 2 (athlete_02)": {"id_trials": 2, "id_3m": "athlete_02"},
+    "Deportista 3 (athlete_03)": {"id_trials": 3, "id_3m": "athlete_03"},
+    "Deportista 4 (athlete_04)": {"id_trials": 4, "id_3m": "athlete_04"},
+    "Deportista 5 (athlete_05)": {"id_trials": 5, "id_3m": "athlete_05"}
+}
+
 if os.path.exists(archivo_excel):
-    # 1. Extraer los atletas únicos directamente del Excel real
+    atleta_visual = st.sidebar.selectbox('Selecciona un Deportista Real:', list(mapeo_atletas.keys()))
+    
+    id_trials_real = mapeo_atletas[atleta_visual]["id_trials"]
+    id_3m_real = mapeo_atletas[atleta_visual]["id_3m"]
+    
+    # 1. Cargar y filtrar estrictamente de trials_CP usando el número entero real
     df_trials_global = pd.read_excel(archivo_excel, sheet_name='trials_CP')
-    lista_atletas = sorted(df_trials_global['athlete_id'].dropna().unique())
-    atleta_sel = st.sidebar.selectbox('Selecciona un Deportista:', lista_atletas)
+    df_atleta_trials = df_trials_global[df_trials_global['athlete_id'] == id_trials_real].copy()
     
-    # 2. Filtrar ensayos de carga de este atleta para los cálculos
-    df_atleta_trials = df_trials_global[df_trials_global['athlete_id'] == atleta_sel].copy()
-    
-    # Identificar nombres de columnas de forma flexible (duration vs duration_s, power vs power_W)
     cols = df_atleta_trials.columns.tolist()
     c_dur = 'duration' if 'duration' in cols else ('duration_s' if 'duration_s' in cols else cols[2])
     c_pow = 'power' if 'power' in cols else ('power_W' if 'power_W' in cols else cols[3])
     
-    # Asegurar que las columnas sean numéricas puras para evitar errores de tipo en operaciones matemáticas
     df_atleta_trials[c_dur] = pd.to_numeric(df_atleta_trials[c_dur], errors='coerce')
     df_atleta_trials[c_pow] = pd.to_numeric(df_atleta_trials[c_pow], errors='coerce')
     df_atleta_trials = df_atleta_trials.dropna(subset=[c_dur, c_pow])
     
-    # 3. Determinar perfil fisiológico real del deportista seleccionado
+    # 2. Buscar en la hoja de 3 minutos usando su ID de texto
     df_3m_global = pd.read_excel(archivo_excel, sheet_name='three_min_allout')
-    data_atleta_3m = df_3m_global[df_3m_global['athlete_id'] == atleta_sel].sort_values('time_s')
+    data_atleta_3m = df_3m_global[df_3m_global['athlete_id'] == id_3m_real].sort_values('time_s')
     
     if not data_atleta_3m.empty:
-        # Atleta 01: Tiene test de 3min -> Cálculo directo por fin de test
+        # Si tiene test de 3min (Deportista 1)
         calculated_cp = data_atleta_3m[(data_atleta_3m['time_s'] >= 155) & (data_atleta_3m['time_s'] <= 180)]['power_W'].mean()
         calculated_w = ((data_atleta_3m['power_W'] - calculated_cp).clip(lower=0) * 5).sum()
         metodo_calculo = "Cálculo directo vía Test All-out de 3 min"
     else:
-        # Atletas 02 al 05: No tienen test de 3min -> Estimación matemática por modelo lineal (Trabajo = CP * t + W')
-        # Calculamos el trabajo realizado en Julios (Potencia * Tiempo)
+        # Para deportistas 2 al 5: Regresión lineal real de sus ensayos de carga (Trabajo vs Tiempo)
         df_atleta_trials['work_J'] = df_atleta_trials[c_pow] * df_atleta_trials[c_dur]
-        
-        # SOLUCIÓN: Forzar conversión a float numérico puro antes de la regresión lineal
         x_data = df_atleta_trials[c_dur].astype(float)
         y_data = df_atleta_trials['work_J'].astype(float)
         
-        # Ejecutar la regresión de forma segura
         slope, intercept, r_value, p_value, std_err = linregress(x_data, y_data)
-        
-        # Asegurar que si la estimación da valores negativos por dispersión, use unos basales lógicos
-        calculated_cp = max(150.0, slope)
-        calculated_w = max(5000.0, intercept)
+        calculated_cp = max(100.0, slope)
+        calculated_w = max(4000.0, intercept)
         metodo_calculo = "Estimación matemática por Regresión Lineal de Ensayos Carga-Tiempo"
         
     st.sidebar.markdown("---")
@@ -100,8 +102,8 @@ if os.path.exists(archivo_excel):
     st.sidebar.metric("Capacidad Anaeróbica (W')", f"{calculated_w:.0f} J")
     st.sidebar.caption(f"*Método:* {metodo_calculo}")
 else:
-    st.sidebar.error(f"No se encuentra el archivo '{archivo_excel}'.")
-    atleta_sel = None
+    st.sidebar.error("Falta el archivo Excel.")
+    atleta_visual = None
     calculated_cp, calculated_w = 300.0, 20000.0
 
 # --- INTERFAZ PRINCIPAL ---
@@ -111,34 +113,32 @@ tab1, tab2, tab3 = st.tabs(["Eficiencia TEI", "Test 3-min All-out", "Simulador H
 # --- TAB 1: EFICIENCIA TEI ---
 with tab1:
     st.header('Análisis de Eficiencia (TEI)')
-    if os.path.exists(archivo_excel) and atleta_sel:
-        st.subheader(f"Relación Carga Externa vs Interna - {atleta_sel}")
+    if os.path.exists(archivo_excel) and atleta_visual:
+        st.subheader(f"Relación Carga Externa vs Interna - {atleta_visual}")
         
         df_display = df_atleta_trials.sort_values(c_dur)
         st.markdown("**Datos reales extraídos de la hoja `trials_CP` para este deportista:**")
         st.dataframe(df_display[[c_dur, c_pow]])
         
-        # Gráfica interactiva real por jugador
         fig_tei = go.Figure()
         fig_tei.add_trace(go.Scatter(
             x=df_display[c_dur], 
             y=df_display[c_pow], 
             mode='markers+lines',
             marker=dict(size=12, color='orange'),
-            name=f'Ensayos {atleta_sel}'
+            name=f'{atleta_visual}'
         ))
         fig_tei.update_layout(
-            title=f"Curva de Tolerancia a la Fatiga (Potencia vs Tiempo) - {atleta_sel}",
+            title=f"Curva de Tolerancia a la Fatiga (Potencia vs Tiempo) - {atleta_visual}",
             xaxis_title="Duración del Esfuerzo (segundos)",
-            yaxis_title="Potencia Soportada (Watts)",
-            hovermode='closest'
+            yaxis_title="Potencia Soportada (Watts)"
         )
         st.plotly_chart(fig_tei, use_container_width=True)
 
 # --- TAB 2: TEST 3-MIN ALL-OUT ---
 with tab2:
-    st.header(f'Validación Test 3-min All-out: {atleta_sel}')
-    if os.path.exists(archivo_excel) and atleta_sel:
+    st.header(f'Validación Test 3-min All-out: {atleta_visual}')
+    if os.path.exists(archivo_excel) and atleta_visual:
         if not data_atleta_3m.empty:
             c1, c2 = st.columns(2)
             c1.metric("Potencia Crítica (CP)", f"{calculated_cp:.1f} W")
@@ -147,16 +147,15 @@ with tab2:
             fig_3m = go.Figure()
             fig_3m.add_trace(go.Scatter(x=data_atleta_3m['time_s'], y=data_atleta_3m['power_W'], name='Potencia Real (W)', line=dict(color='#1f77b4')))
             fig_3m.add_hline(y=calculated_cp, line_dash='dash', line_color='red', annotation_text='CP (Estado Estable)')
-            fig_3m.update_layout(title=f"Evolución de la Potencia en el Test de Vaciamiento - {atleta_sel}", xaxis_title="Tiempo (s)", yaxis_title="Potencia (W)")
+            fig_3m.update_layout(title=f"Evolución de la Potencia en el Test de Vaciamiento - {atleta_visual}", xaxis_title="Tiempo (s)", yaxis_title="Potencia (W)")
             st.plotly_chart(fig_3m, use_container_width=True)
         else:
-            st.info(f"El {atleta_sel} no registra una prueba All-out de 3 minutos en el Excel. Su perfil fisiológico ha sido resuelto matemáticamente mediante el modelo lineal de la pestaña TEI.")
+            st.info(f"El {atleta_visual} no registra una prueba All-out de 3 minutos en el Excel. Su perfil fisiológico ha sido resuelto matemáticamente mediante el modelo lineal de la pestaña TEI.")
 
 # --- TAB 3: SIMULADOR HIIT COMPUESTO ---
 with tab3:
-    st.header(f"Simulador de Cinética de W' balance para {atleta_sel}")
+    st.header(f"Simulador de Cinética de W' balance para {atleta_visual}")
     
-    # Sesiones de la práctica
     sesiones_config = {
         'S1_short_short': {'reps': 10, 'w_pct': 120, 'w_dur': 30, 'r_pct': 50, 'r_dur': 30},
         'S2_long_recovery': {'reps': 10, 'w_pct': 115, 'w_dur': 60, 'r_pct': 45, 'r_dur': 120},
@@ -184,7 +183,7 @@ with tab3:
         ))
         
     fig_sim.add_hline(y=0, line_dash='solid', line_color='black', annotation_text='FALLO METABÓLICO')
-    fig_sim.update_layout(title=f"Cinética de W' (% Restante) basada en el perfil real de {atleta_sel}", yaxis_title="% W' Restante", xaxis_title='Tiempo (s)', hovermode='x unified')
+    fig_sim.update_layout(title=f"Cinética de W' (% Restante) basada en el perfil real de {atleta_visual}", yaxis_title="% W' Restante", xaxis_title='Tiempo (s)', hovermode='x unified')
     st.plotly_chart(fig_sim, use_container_width=True)
     
     st.subheader("2. Tabla Comparativa de Resultados")
@@ -201,7 +200,7 @@ with tab3:
     
     st.subheader("3. Justificación y Toma de Decisiones")
     st.markdown(f"""
-    * **¿Cuántas repeticiones se necesitan para llegar al fallo?:** Analizando a **{atleta_sel}**, la sesión **S3_risky** provoca un fallo prematuro inmediato debido a bloques de trabajo larguísimos (120s) muy por encima de la CP con una pausa ineficiente al 70%. En cambio, **S1** y **S2** permiten completar la sesión o tolerar un mayor número de repeticiones debido a mejores ratios de recuperación exponencial.
+    * **¿Cuántas repeticiones se necesitan para llegar al fallo?:** Analizando a **{atleta_visual}**, la sesión **S3_risky** provoca un fallo prematuro inmediato debido a bloques de trabajo larguísimos (120s) muy por encima de la CP con una pausa ineficiente al 70%. En cambio, **S1** y **S2** permiten completar la sesión o tolerar un mayor número de repeticiones debido a mejores ratios de recuperación exponencial.
     * **Modificación para evitar el fallo en S3:** Para que el deportista finalice las 10 repeticiones se debe disminuir la intensidad de trabajo al 105-108% de la CP o, en su defecto, reducir la potencia de la pausa al 40% aumentando el tiempo de recuperación al doble (ratio 1:2 o 1:3).
     * **Elección de Sesión Moderada:** Elegimos **S_Moderada_Propuesta** (30s trabajo al 112% CP / 45s recuperación al 40% CP). 
     * **Justificación:** Al disminuir ligeramente el porcentaje de potencia de esfuerzo y bajar la pausa notablemente al 40% de la CP, aumentamos la amplitud del gradiente de potencia ($D_{{CP}}$). Esto acorta de manera drástica la constante de tiempo $\\tau$ (Tau), permitiendo que el $W'$ se reconstituya velozmente en los descansos, asegurando un estímulo HIIT real y óptimo sin riesgo de colapso metabólico.
