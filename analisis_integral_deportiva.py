@@ -58,9 +58,9 @@ if os.path.exists(archivo_excel):
     df_trials_global = pd.read_excel(archivo_excel, sheet_name='trials_CP')
     df_atleta_trials = df_trials_global[df_trials_global['athlete_id'] == id_trials_real].copy()
     
-    # Nombres exactos de las columnas de tu Excel para trials_CP
-    c_dur = 'duration'
-    c_pow = 'power'
+    # CORREGIDO: Nombres de columnas mapeados exactamente a tu Excel
+    c_dur = 'time_s' if 'time_s' in df_atleta_trials.columns else 'duration_s'
+    c_pow = 'power_W'
     
     df_atleta_trials[c_dur] = pd.to_numeric(df_atleta_trials[c_dur], errors='coerce')
     df_atleta_trials[c_pow] = pd.to_numeric(df_atleta_trials[c_pow], errors='coerce')
@@ -74,7 +74,7 @@ if os.path.exists(archivo_excel):
     calculated_cp = max(100.0, slope)
     calculated_w = max(4000.0, intercept)
     
-    # Cargar test 3 minutos (Solo Athlete 01 lo tiene rellenado en el Excel de origen)
+    # Cargar test 3 minutos
     df_3m_global = pd.read_excel(archivo_excel, sheet_name='three_min_allout')
     data_atleta_3m = df_3m_global[df_3m_global['athlete_id'] == id_3m_real].sort_values('time_s')
     
@@ -91,7 +91,7 @@ else:
 st.title('📊 Dashboard de Rendimiento Avanzado')
 tab1, tab2, tab3 = st.tabs(["Eficiencia TEI", "Test 3-min All-out", "Simulador HIIT W'bal"])
 
-# --- TAB 1: EFICIENCIA TEI (SOLUCIONADO COLUMNAS REALES) ---
+# --- TAB 1: EFICIENCIA TEI ---
 with tab1:
     st.header('Análisis de Eficiencia (TEI)')
     if os.path.exists(archivo_excel) and atleta_visual:
@@ -99,7 +99,6 @@ with tab1:
         
         df_display = df_atleta_trials.sort_values(c_dur)
         st.markdown("**Datos reales extraídos de la hoja `trials_CP` para este deportista:**")
-        # Renombramos visualmente para el profesor
         df_visual = df_display[[c_dur, c_pow]].rename(columns={c_dur: 'Duración (s)', c_pow: 'Potencia (W)'})
         st.dataframe(df_visual)
         
@@ -118,7 +117,7 @@ with tab1:
         )
         st.plotly_chart(fig_tei, use_container_width=True)
 
-# --- TAB 2: TEST 3-MIN ALL-OUT (SOLUCIONADO GRÁFICAS ADAPTADAS) ---
+# --- TAB 2: TEST 3-MIN ALL-OUT ---
 with tab2:
     st.header(f'Validación Test 3-min All-out: {atleta_visual}')
     if os.path.exists(archivo_excel) and atleta_visual:
@@ -128,10 +127,8 @@ with tab2:
         
         fig_3m = go.Figure()
         if not data_atleta_3m.empty:
-            # Deportista 1: Pintar su curva real del Excel
             fig_3m.add_trace(go.Scatter(x=data_atleta_3m['time_s'], y=data_atleta_3m['power_W'], name='Potencia Real (W)', line=dict(color='#1f77b4')))
         else:
-            # Deportistas 2 al 5: Generar simulación matemática realista del vaciamiento de 3min para que NO salga vacío
             t_sim = np.arange(1, 181, 1)
             p_sim = calculated_cp + (calculated_w / 180) * np.exp(-t_sim / 30) * 4
             fig_3m.add_trace(go.Scatter(x=t_sim, y=p_sim, name='Curva de Potencia Estimada (W)', line=dict(color='#1f77b4', dash='dash')))
