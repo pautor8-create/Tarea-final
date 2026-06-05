@@ -45,27 +45,28 @@ def simulate_w_bal(cp, w_total, work_p_pct, work_dur, rest_p_pct, rest_dur, reps
             
     return time, w_bal, status, reps_completadas
 
-# --- BARRA LATERAL IZQUIERDA (SELECTOR DE JUGADOR) ---
+# --- BARRA LATERAL IZQUIERDA (CONEXIÓN REAL AL EXCEL) ---
 st.sidebar.title("🏃‍♂️ Control de Deportistas")
 
 if os.path.exists(archivo_excel):
+    # Leer atletas directamente de la hoja del test de 3 min
     df_3m_global = pd.read_excel(archivo_excel, sheet_name='three_min_allout')
     lista_atletas = sorted(df_3m_global['athlete_id'].dropna().unique())
-    atleta_sel = st.sidebar.selectbox('Selecciona un Deportista:', lista_atletas)
     
-    # Calcular dinámicamente el perfil del atleta seleccionado según el Excel
+    # Selector dinámico en la barra lateral con los deportistas reales del Excel (athlete_01, athlete_02...)
+    atleta_sel = st.sidebar.selectbox('Selecciona un Deportista Real:', lista_atletas)
+    
+    # Calcular métricas reales del test de 3 min para el atleta seleccionado
     data_atleta = df_3m_global[df_3m_global['athlete_id'] == atleta_sel].sort_values('time_s')
-    # CP = media de la potencia entre los segundos 155 y 180 del test de 3 min
     calculated_cp = data_atleta[(data_atleta['time_s'] >= 155) & (data_atleta['time_s'] <= 180)]['power_W'].mean()
-    # W' = Sumatorio del trabajo por encima de la CP
     calculated_w = ((data_atleta['power_W'] - calculated_cp).clip(lower=0) * 5).sum()
     
     st.sidebar.markdown("---")
-    st.sidebar.subheader("📊 Valores Fisiológicos Calculados")
+    st.sidebar.subheader("📊 Perfil Fisiológico")
     st.sidebar.metric("Potencia Crítica (CP)", f"{calculated_cp:.1f} W")
     st.sidebar.metric("Capacidad Anaeróbica (W')", f"{calculated_w:.0f} J")
 else:
-    st.sidebar.error("Falta el archivo Excel.")
+    st.sidebar.error(f"No se encuentra el archivo '{archivo_excel}' en GitHub.")
     atleta_sel = None
     calculated_cp, calculated_w = 300.0, 20000.0
 
@@ -73,10 +74,42 @@ else:
 st.title('📊 Dashboard de Rendimiento Avanzado')
 tab1, tab2, tab3 = st.tabs(["Eficiencia TEI", "Test 3-min All-out", "Simulador HIIT W'bal"])
 
-# --- TAB 1: TEI ---
+# --- TAB 1: EFICIENCIA TEI (CON DATOS REALES DE TRIALS_CP) ---
 with tab1:
     st.header('Análisis de Eficiencia (TEI)')
-    st.info('Sección para análisis de carga externa vs interna.')
+    if os.path.exists(archivo_excel) and atleta_sel:
+        st.subheader(f"Relación Carga Externa vs Interna - {atleta_sel}")
+        
+        # Leer los datos de la hoja trials_CP
+        df_trials = pd.read_excel(archivo_excel, sheet_name='trials_CP')
+        
+        # Filtrar datos para el atleta seleccionado
+        df_atleta_trials = df_trials[df_trials['athlete_id'] == atleta_sel].sort_values('duration_s')
+        
+        if not df_atleta_trials.empty:
+            # Mostrar tabla de los trials del deportista
+            st.markdown("**Resumen de Tests de Carga Realizados:**")
+            st.dataframe(df_atleta_trials[['trial_id', 'duration_s', 'power_W']])
+            
+            # Gráfica de Potencia vs Duración de los Ensayos
+            fig_tei = go.Figure()
+            fig_tei.add_trace(go.Scatter(
+                x=df_atleta_trials['duration_s'], 
+                y=df_atleta_trials['power_W'], 
+                mode='markers+lines',
+                marker=dict(size=12, color='orange'),
+                name='Ensayos Realizados'
+            ))
+            fig_tei.update_layout(
+                title=f"Curva de Tolerancia a la Fatiga (Potencia vs Tiempo) - {atleta_sel}",
+                xaxis_title="Duración del Esfuerzo (segundos)",
+                yaxis_title="Potencia Soportada (Watts)"
+            )
+            st.plotly_chart(fig_tei, use_container_width=True)
+        else:
+            st.warning(f"No hay datos de ensayos de carga para {atleta_sel} en la hoja trials_CP.")
+    else:
+        st.error("Carga el archivo Excel para activar esta pestaña.")
 
 # --- TAB 2: TEST 3-MIN ALL-OUT ---
 with tab2:
@@ -87,18 +120,16 @@ with tab2:
         c2.metric("Capacidad Anaeróbica (W')", f"{calculated_w:.0f} J")
         
         fig_3m = go.Figure()
-        fig_3m.add_trace(go.Scatter(x=data_atleta['time_s'], y=data_atleta['power_W'], name='Potencia (W)', line=dict(color='#1f77b4')))
-        fig_3m.add_hline(y=calculated_cp, line_dash='dash', line_color='red', annotation_text='CP del Deportista')
-        fig_3m.update_layout(title=f"Perfil del Test de 3 minutos - {atleta_sel}", xaxis_title="Tiempo (s)", yaxis_title="Potencia (W)")
+        fig_3m.add_trace(go.Scatter(x=data_atleta['time_s'], y=data_atleta['power_W'], name='Potencia Real (W)', line=dict(color='#1f77b4')))
+        fig_3m.add_hline(y=calculated_cp, line_dash='dash', line_color='red', annotation_text='CP (Estado Estable)')
+        fig_3m.update_layout(title=f"Evolución de la Potencia en el Test de Vaciamiento - {atleta_sel}", xaxis_title="Tiempo (s)", yaxis_title="Potencia (W)")
         st.plotly_chart(fig_3m, use_container_width=True)
-    else:
-        st.error('Archivo no encontrado.')
 
 # --- TAB 3: SIMULADOR HIIT COMPUESTO ---
 with tab3:
     st.header(f"Simulador de Cinética de W' balance para {atleta_sel}")
     
-    # Configuración de las 3 sesiones del enunciado + la propuesta moderada adaptada
+    # Definición de las 3 sesiones del enunciado + la propuesta moderada adaptada
     sesiones_config = {
         'S1_short_short': {'reps': 10, 'w_pct': 120, 'w_dur': 30, 'r_pct': 50, 'r_dur': 30},
         'S2_long_recovery': {'reps': 10, 'w_pct': 115, 'w_dur': 60, 'r_pct': 45, 'r_dur': 120},
@@ -118,7 +149,6 @@ with tab3:
         'S_Moderada_Propuesta': '#ff7f0e'
     }
     
-    # Correr simulación para cada sesión usando los datos del jugador seleccionado a la izquierda
     for nombre, conf in sesiones_config.items():
         t, w, res, reps_comp = simulate_w_bal(
             calculated_cp, calculated_w, conf['w_pct'], conf['w_dur'], conf['r_pct'], conf['r_dur'], reps=conf['reps']
